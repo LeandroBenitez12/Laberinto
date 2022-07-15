@@ -241,7 +241,6 @@ void MovimientodelRobot(int sensor)
 {
   switch (sensor)
   {
-
   case INICIAL:
   {
     Stop();
