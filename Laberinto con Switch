@@ -1,3 +1,8 @@
+#include "BluetoothSerial.h"
+// DEBUG
+#define DEBUG_DE_CASOS 1
+#define DEBUG_DE_SENSORES 1
+#define DEBUG_DE_BUZZER 1
 // declaramos pines
 // motores
 #define ENA 15
@@ -15,12 +20,12 @@
 #define TRIG2 25
 #define TRIG3 27
 #define TRIG4 12
-#define DISTANCIA_MINIMA_ADE 5
+#define DISTANCIA_MINIMA_ADE 15
 #define TICK_STOP 1000
-#define DISTANCIA_MINIMA_IZQ 5
-#define DISTANCIA_MINIMA_DER 5
+#define DISTANCIA_MINIMA_IZQ 15
+#define DISTANCIA_MINIMA_DER 15
 #define TICK_ULTRASONIDO 10
-#define VELOCIDAD 150
+#define VELOCIDAD 140
 #define BUZZER 23
 #define BUTTON 13
 // pwm DE UN MOTOR
@@ -45,21 +50,27 @@ unsigned long tiempo_actual_stop = 0;
 unsigned long tiempo_actual_button = 0;
 // PIN_SENSORES en una matriz
 int pin_sensores_ultrasonido[4][2] = {
-    {ECHO1, TRIG1},
-    {ECHO2, TRIG2},
-    {ECHO3, TRIG3},
-    {ECHO4, TRIG4},
+  {ECHO1, TRIG1},
+  {ECHO2, TRIG2},
+  {ECHO3, TRIG3},
+  {ECHO4, TRIG4},
 };
 // ENMASCARADO
 #define FRONTAL_ACTIVO 2
 #define DERECHO_ACTIVO 1
 #define IZQUIERDO_ACTIVO 4
 
+//establecemos conexion bluetooth
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+BluetoothSerial SerialBT;
 //------------------------------------------------------------------------------------------
 
 // ESTADOS DEL SENSOR
 
-enum ESTADO_SENSOR
+enum UBICACIONES
 {
   INICIAL,
   PASILLO,
@@ -67,7 +78,8 @@ enum ESTADO_SENSOR
   FRONTAL_DERECHO,
   IZQUIERDO_FRONTAL,
   IZQUIERDO_FRONTAL_DERECHO,
-  PARAR
+  CRUCE_T,
+  CRUCE,
 };
 
 //------------------------------------------------------------------------------------------
@@ -116,24 +128,24 @@ void Motor(int estado, int pin1, int pin2, int pwm)
 
   switch (estado)
   {
-  case AVANZAR:
-  {
-    digitalWrite(pin1, LOW);
-    digitalWrite(pin2, HIGH);
-    break;
-  }
-  case RETROCEDER:
-  {
-    digitalWrite(pin1, HIGH);
-    digitalWrite(pin2, LOW);
-    break;
-  }
-  case STOP:
-  {
-    digitalWrite(pin1, LOW);
-    digitalWrite(pin2, LOW);
-    break;
-  }
+    case AVANZAR:
+      {
+        digitalWrite(pin1, LOW);
+        digitalWrite(pin2, HIGH);
+        break;
+      }
+    case RETROCEDER:
+      {
+        digitalWrite(pin1, HIGH);
+        digitalWrite(pin2, LOW);
+        break;
+      }
+    case STOP:
+      {
+        digitalWrite(pin1, LOW);
+        digitalWrite(pin2, LOW);
+        break;
+      }
   }
 }
 
@@ -179,7 +191,8 @@ void Stop()
   MotorDer(STOP);
   MotorIzq(STOP);
 }
-void Buzzer(){
+void Buzzer()
+{
   digitalWrite(BUZZER, HIGH);
 }
 //-------------------------------------------------------------
@@ -203,183 +216,237 @@ int LeerButton(int button)
 }
 
 //-------------------------------------------------------------
-void ImprimirEstadoRobot(int sensor)
+void ImprimirEstadoRobot(int ubicacion)
 {
   String estado_robot = "";
-    if (sensor == INICIAL)
+  if (ubicacion == INICIAL)
     estado_robot = "STANDBY";
-  else if (sensor == PASILLO)
-    estado_robot = "ADELANTE";
-  else if (sensor == FRONTAL)
-    estado_robot = "DERECHA";
-  else if (sensor == FRONTAL_DERECHO)
-    estado_robot = "IZQUIERDA";
-  else if (sensor == IZQUIERDO_FRONTAL)
-    estado_robot = "DERECHA";
-  else if (sensor == PARAR)
-    estado_robot = "PARAR";
+  else if (ubicacion == PASILLO)
+    estado_robot = "PASILLO";
+  else if (ubicacion == FRONTAL)
+    estado_robot = "FRONTAL";
+  else if (ubicacion == FRONTAL_DERECHO)
+    estado_robot = "HAY ALGO A LA DERECHA";
+  else if (ubicacion == IZQUIERDO_FRONTAL)
+    estado_robot = "HAY ALGO A LA IZQUIERDA";
 
-  Serial.print("sensor: ");
-  Serial.print(estado_robot);
-  Serial.print(sensor);
-  Serial.print(" | ");
+  SerialBT.print("sensor: ");
+  SerialBT.print(estado_robot);
+  SerialBT.print(" | ");
 }
 void ImprimirDatos(int sd, int sai, int si)
 {
-  Serial.print("   sensor_derecho: ");
-  Serial.print(sd);
-  Serial.print("   - sensor_frontal: ");
-  Serial.print(sai);
-  Serial.print("   - sensor_izquierdo: ");
-  Serial.println(si);
+  SerialBT.print("   sensor_derecho: ");
+  SerialBT.print(sd);
+  SerialBT.print("   - sensor_frontal: ");
+  SerialBT.print(sai);
+  SerialBT.print("   - sensor_izquierdo: ");
+  SerialBT.println(si);
 }
 //----------------------------------------------------------------
-
-int sensor = INICIAL;
-int sensor_anterior = PARAR;
-void MovimientodelRobot(int sensor)
-{
-  switch (sensor)
+//Maquina de estados
+int ubicacion = INICIAL;
+void MovimientosDelRobot() {
+  switch (ubicacion)
   {
-  case INICIAL:
-  {
-    Stop();
-    if (millis() > tiempo_actual_button + PERIODO)
-    {
-      tiempo_actual_button = millis();
-      button_start = LeerButton(BUTTON);
-    }
-    if (button_start == true)
-    {
-      sensor = PASILLO;
-    }
-    else
-    {
-      sensor = INICIAL;
-    }
-
+    case INICIAL: {
+         {
+      ubicacion = PASILLO;
     break;
-  }
-  case PASILLO:
-  {
-    Forward();
-    if (sensor_frontal < DISTANCIA_MINIMA_ADE)
+  } 
+        
+    }
+    case PASILLO:
+      {
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+        {
+          Forward();
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE)
+        {
+
+          if (sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+          {
+            ubicacion = IZQUIERDO_FRONTAL;
+          }
+          if (sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+          {
+            ubicacion = FRONTAL_DERECHO;
+          }
+          if (sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+          {
+            ubicacion = FRONTAL;
+          }
+          if (sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+          {
+            ubicacion = IZQUIERDO_FRONTAL_DERECHO;
+          }
+          if (sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = CRUCE_T;
+        }
+        }
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+            ubicacion = CRUCE;
+        }
+        break;
+      }
+
+    case IZQUIERDO_FRONTAL:
+      {
+
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          Right();
+          Buzzer();
+        }
+
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+          ubicacion = PASILLO;
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL_DERECHO;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = CRUCE_T;
+        }
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+            ubicacion = CRUCE;
+        }
+        break;
+      }
+    case FRONTAL_DERECHO:
+      {
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+        {
+          Left();
+          Buzzer();
+        }
+
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+          ubicacion = PASILLO;
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = IZQUIERDO_FRONTAL;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = CRUCE_T;
+        }
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+            ubicacion = CRUCE;
+        }
+        break;
+      }
+    case FRONTAL:
+      {
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          Right();
+          Buzzer();
+        }
+
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+        {
+          ubicacion = PASILLO;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = IZQUIERDO_FRONTAL;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL_DERECHO;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = CRUCE_T;
+        }
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+            ubicacion = CRUCE;
+        }
+        break;
+      }
+
+    case CRUCE_T: 
     {
-      
-      if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-      {
-        sensor = IZQUIERDO_FRONTAL;
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          Right();
+          Buzzer();
+        }
+
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+          ubicacion = PASILLO;
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL_DERECHO;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL;
+        }
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+            ubicacion = CRUCE;
+        }
+        break;
       }
-      if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-      {
-        sensor = FRONTAL_DERECHO;
-      }
-      if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-      {
-        sensor = FRONTAL;
-      }
-      if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-      {
-        sensor = IZQUIERDO_FRONTAL_DERECHO;
+
+    case CRUCE: {
+        if (sensor_frontal > DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          Right();
+          Buzzer();
+        }
+
+         if (sensor_frontal > DISTANCIA_MINIMA_ADE)
+          ubicacion = PASILLO;
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL_DERECHO;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = FRONTAL;
+        }
+        if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
+        {
+          ubicacion = CRUCE_T;
+        }
+
+        break;
       }
     }
-    break;
-  }
-  
-case IZQUIERDO_FRONTAL:
-{
-  Right();
-  Buzzer();
-  if (sensor_frontal > DISTANCIA_MINIMA_ADE)
-    sensor = PASILLO;
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL_DERECHO;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL_DERECHO;
-  }
-  break;
-}
-case FRONTAL_DERECHO:
-{
-  Left();
-  Buzzer();
-  if (sensor_frontal > DISTANCIA_MINIMA_ADE)
-    sensor = PASILLO;
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL_DERECHO;
-  }
-}
-case FRONTAL:
-{
-  Right();
-  Buzzer();
-  if (sensor_frontal > DISTANCIA_MINIMA_ADE)
-  {
-    sensor = PASILLO;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL_DERECHO;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL_DERECHO;
-  }
-  break;
-}
-case PARAR:
-{
-  Stop();
-    if (sensor_frontal > DISTANCIA_MINIMA_ADE)
-  {
-    sensor = PASILLO;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo < DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = IZQUIERDO_FRONTAL;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho < DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL_DERECHO;
-  }
-  if (sensor_frontal < DISTANCIA_MINIMA_ADE && sensor_izquierdo > DISTANCIA_MINIMA_IZQ && sensor_derecho > DISTANCIA_MINIMA_DER)
-  {
-    sensor = FRONTAL;
-  }  
-  break;
-}
-}
-}
+    }
 //-------------------------------------------------------------
 void setup()
 {
   Serial.begin(115200);
+  SerialBT.begin("ESP32_Benitez"); //Nombre del Bluetooth
   AsignacionpinesMOTORES();
   asignacionPinesSensores();
   AsignacionPinesPWM();
 }
 void loop()
 {
+  if (Serial.available()) {
+    SerialBT.write(Serial.read());
+  }
+
   if (millis() > tiempo_actual + TICK_ULTRASONIDO)
   {
     tiempo_actual = millis();
@@ -387,13 +454,16 @@ void loop()
     sensor_frontal = LeerUltrasonidos(TRIG2, ECHO2);
     sensor_derecho = LeerUltrasonidos(TRIG4, ECHO4);
   }
-  // logica-algoritmo
-  if (sensor != sensor_anterior)
-  {
-    MovimientodelRobot(sensor);
-    sensor_anterior = sensor;
-  }
+  MovimientosDelRobot();
+    if (SerialBT.available()) {
 
-  ImprimirEstadoRobot(sensor);
-  ImprimirDatos(sensor_derecho, sensor_frontal, sensor_izquierdo);
+  if(DEBUG_DE_CASOS){
+  ImprimirEstadoRobot(ubicacion);
+  }
+  if (DEBUG_DE_SENSORES){
+   ImprimirDatos(sensor_derecho, sensor_frontal, sensor_izquierdo); 
+  }
+    }
+  
+  
 }
