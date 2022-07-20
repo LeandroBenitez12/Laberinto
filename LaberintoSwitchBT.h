@@ -1,4 +1,5 @@
 #include "BluetoothSerial.h"
+#include <PID_v1.h>
 // DEBUG
 #define DEBUG_DE_CASOS 1
 #define DEBUG_DE_SENSORES 1
@@ -42,12 +43,24 @@ int sensor_frontal;
 int sensor_izquierdo;
 // button
 bool button_start;
-
+// timer
 int periodo = 1000;
 #define PERIODO 100
 unsigned long tiempo_actual = 0;
 unsigned long tiempo_actual_stop = 0;
 unsigned long tiempo_actual_button = 0;
+//PID 
+//Definir vairables del control PID
+double Setpoint, Input, Output; 
+double Kp=1.2, Ki=0.19, Kd=0.001; 
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+// Accion en la interrupción 
+void flash(){  
+  myPID.Compute();  // Calcula la señal de control
+  RunMotor(Output); // Aplica la señal de control hacia el Motor
+}
+
 // PIN_SENSORES en una matriz
 int pin_sensores_ultrasonido[4][2] = {
   {ECHO1, TRIG1},
@@ -244,6 +257,33 @@ void ImprimirDatos(int sd, int sai, int si)
   SerialBT.println(si);
 }
 //----------------------------------------------------------------
+// Función para accionar el giro del eje del motor
+void RunMotor(double Usignal){  
+  double pwmS;
+
+  if(Usignal>=0){
+      pwmS=Usignal*10000/719-9089.0/719.0;
+    shaftrev(MR1,MR2,PWMChannel,ubicacion , pwmS);
+  }else{
+      pwmS=-Usignal*10000/719-9089.0/719.0;
+      shaftrev(MR1,MR2,PWMChannel,ubicacion , pwmS);
+  }   
+}
+
+// Función que configura el motor que se quiere controlar
+void shaftrev(int in1, int in2, int PWMChannel, int estado,int Wpulse){  
+  if(estado == PASILLO ){ //backWARDS
+    digitalWrite(in2, HIGH);
+    digitalWrite(in1, LOW);
+    ledcWrite(PWMChannel, Wpulse);
+    }
+  if(estado == FRONTAL){ //forWARDS
+    digitalWrite(in2, LOW);
+    digitalWrite(in1, HIGH);
+    ledcWrite(PWMChannel, Wpulse);   
+    }
+}
+//----------------------------------------------------------------
 //Maquina de estados
 int ubicacion = INICIAL;
 void MovimientosDelRobot() {
@@ -253,7 +293,7 @@ void MovimientosDelRobot() {
          {
       ubicacion = PASILLO;
     break;
-  } 
+  }
         
     }
     case PASILLO:
@@ -440,9 +480,16 @@ void setup()
   AsignacionpinesMOTORES();
   asignacionPinesSensores();
   AsignacionPinesPWM();
+  //Activa el PID
+  myPID.SetMode(AUTOMATIC);
+    // valores maximos y minimos de salida del controlador
+  myPID.SetOutputLimits(-255,255); 
+  //TIempo de muestreo milisegundos para el PID
+  myPID.SetSampleTime(3);      
 }
 void loop()
 {
+
   if (Serial.available()) {
     SerialBT.write(Serial.read());
   }
@@ -454,9 +501,16 @@ void loop()
     sensor_frontal = LeerUltrasonidos(TRIG2, ECHO2);
     sensor_derecho = LeerUltrasonidos(TRIG4, ECHO4);
   }
+    // Algoritmo de protección de mecanismos de posición
+  if(sensor_frontal>=20){
+     shaftrev(MR1,MR2,PWMChannel,ubicacion ,255);
+  }else if(sensor_frontal<=20){
+     shaftrev(MR1,MR2,PWMChannel,ubicacion ,100);
+  }
+  // Introduce el angulo para cerrar el lazo de control
+  Input=sensor_frontal;
   MovimientosDelRobot();
     if (SerialBT.available()) {
-
   if(DEBUG_DE_CASOS){
   ImprimirEstadoRobot(ubicacion);
   }
@@ -464,6 +518,5 @@ void loop()
    ImprimirDatos(sensor_derecho, sensor_frontal, sensor_izquierdo); 
   }
     }
-  
-  
+
 }
