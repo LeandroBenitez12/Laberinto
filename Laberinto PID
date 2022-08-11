@@ -1,7 +1,7 @@
 #include "BluetoothSerial.h"
 // DEBUG
-#define DEBUG_DE_CASOS 1
-#define DEBUG_DE_SENSORES 1
+#define DEBUG_DE_CASOS 0
+#define DEBUG_DE_SENSORES 0
 #define DEBUG_PID 1
 // declaramos pines
 // motores
@@ -23,25 +23,22 @@
 #define DISTANCIA_MINIMA 50
 #define DISTANCIA_LADOS 100
 #define DISTANCIA_MAXIMA 100
-#define TICK_PID 20
+#define TICK_PID 50
 #define TICK_ULTRASONIDO 10
 #define TICK_NOTIFICACION 1000
-int velocidad1 = 200;
-int velocidad2 = 200;
-int vel1;
-int vel2;
-int vel1b;
-int vel2b;
-int velocidad = 200;
+int velocidad_derecha = 165;
+int velocidad_izquierda = 165;
+int velocidad_media = 165;
 #define BUZZER 23
 #define BUTTON 13
 // pwm DE UN MOTOR
 const int freq = 5000;
+// LOS CANALES PWM TIENEN QUE SER DISTINTOS!!!!!!
 const int PWMChannel = 0;
 const int resolution = 8;
 // pwm DE UN 2DO MOTOR
 const int freq2 = 5000;
-const int PWMChannel2 = 0;
+const int PWMChannel2 = 1;
 const int resolution2 = 8;
 // Sensores
 int sensor_derecho;
@@ -66,7 +63,7 @@ int pin_sensores_ultrasonido[4][2] = {
 
   //PID 
   //PID constants
-double kp = 0.6;
+double kp = 0.149;
 double kd = 0;
 
 unsigned long currentTime, previousTime;
@@ -76,6 +73,7 @@ double lastError;
 double input, output, setPoint = 0;
 double deltaError;
 double PID1;
+
 double computePID(double input){
 currentTime = millis(); //get current time
 elapsedTime = (double)(currentTime - previousTime); //compute time elapsed from previous computation
@@ -176,36 +174,32 @@ void Motor(int estado, int pin1, int pin2, int pwm, int velocidad)
 
 void MotorDer(int estado)
 {
-  Motor(estado, MR1, MR2, PWMChannel,velocidad1);
+  Motor(estado, MR1, MR2, PWMChannel,velocidad_izquierda);
 }
 void MotorIzq(int estado)
 {
-  Motor(estado, ML1, ML2, PWMChannel2,velocidad2);
+  Motor(estado, ML1, ML2, PWMChannel2,velocidad_derecha);
 }
 // HACIA ADELANTE
-void Forward()
+void Right()
 {
   MotorDer(AVANZAR);
   MotorIzq(AVANZAR);
 }
 // HACIA ATRAS
-void Backward()
+void Left()
 {
   MotorDer(RETROCEDER);
   MotorIzq(RETROCEDER);
 }
 // GIRO SOBRE SU PROPIO EJE A LA DERECHA
-void Right()
+void Forward()
 {
-  digitalWrite(MR1, HIGH);
-  digitalWrite(MR2, LOW);
-  ledcWrite(PWMChannel, velocidad1);
-  digitalWrite(ML1, LOW);
-  digitalWrite(ML2, HIGH);
-  ledcWrite(PWMChannel2, velocidad2);
+  MotorDer(RETROCEDER);
+  MotorIzq(AVANZAR);
 }
 // GIRO SOBRE SU PROPIO EJE A LA IZQUIERDA
-void Left()
+void Backward()
 {
   MotorDer(AVANZAR);
   MotorIzq(RETROCEDER);
@@ -230,7 +224,7 @@ int LeerUltrasonidos(int pin_trig, int pin_echo)
   delayMicroseconds(10); // Enviamos un pulso de 10us
   digitalWrite(pin_trig, LOW);
   duracion = pulseIn(pin_echo, HIGH);
-  distancia = duracion / 58.2;
+  distancia = duracion / 5.82;
   return distancia;
 }
 int LeerButton(int pin_btn)
@@ -273,15 +267,11 @@ void ImprimirDatos(int sd, int sai, int si)
   SerialBT.print(si);
 }
 void ImprimirPID(){
-    SerialBT.print("EL PID ES: ");  
-    SerialBT.print( PID1);
-    SerialBT.print(" | ");
-    SerialBT.print( "La vel1 es: ");
-    SerialBT.print(velocidad1);
-    SerialBT.print(" | ");
-    SerialBT.print("La vel2 es: ");
-    SerialBT.print(velocidad2);
-    SerialBT.print(" | ");
+    SerialBT.println( PID1);
+    SerialBT.print(" | vel_der");
+    SerialBT.print(velocidad_derecha);
+    SerialBT.print(" | vel_izq ");
+    SerialBT.print(velocidad_izquierda);
 }
 //----------------------------------------------------------------
 // Maquina de estados
@@ -349,7 +339,6 @@ void MovimientosDelRobot()
     if (sensor_frontal <= DISTANCIA_MINIMA && sensor_izquierdo < DISTANCIA_MINIMA && sensor_derecho > DISTANCIA_MINIMA)
     {
       Right();
-      Buzzer();
     }
 
     if (sensor_frontal > DISTANCIA_MINIMA)
@@ -377,7 +366,6 @@ void MovimientosDelRobot()
     if (sensor_frontal <= DISTANCIA_MINIMA && sensor_izquierdo > DISTANCIA_MINIMA && sensor_derecho < DISTANCIA_MINIMA)
     {
       Left();
-      Buzzer();
     }
 
     if (sensor_frontal > DISTANCIA_MINIMA)
@@ -405,7 +393,6 @@ void MovimientosDelRobot()
     if (sensor_frontal <= DISTANCIA_MINIMA && sensor_izquierdo > DISTANCIA_MINIMA && sensor_derecho > DISTANCIA_MINIMA)
     {
       Right();
-      Buzzer();
     }
 
     if (sensor_frontal > DISTANCIA_MINIMA)
@@ -433,8 +420,7 @@ void MovimientosDelRobot()
   {
     if (sensor_frontal > DISTANCIA_MINIMA && sensor_izquierdo > DISTANCIA_MAXIMA && sensor_derecho > DISTANCIA_MAXIMA)
     {
-      Right();
-      Buzzer();
+      Forward();
     }
 
     if (sensor_frontal > DISTANCIA_MINIMA)
@@ -462,7 +448,6 @@ void MovimientosDelRobot()
     if (sensor_frontal < DISTANCIA_MINIMA && sensor_izquierdo < DISTANCIA_MINIMA && sensor_derecho < DISTANCIA_MINIMA)
     {
       Right();
-      Buzzer();
     }
     if (sensor_frontal > DISTANCIA_MINIMA)
     {
@@ -503,75 +488,58 @@ void MovimientosDelRobot()
 void setup()
 {
   Serial.begin(9600);
-  SerialBT.begin("ESP32_Benitez"); // Nombre del Bluetooth
+  SerialBT.begin("Laberinto_BOver"); // Nombre del Bluetooth
   AsignacionpinesMOTORES();
   asignacionPinesSensores();
   AsignacionPinesPWM();
 }
 void loop()
 {
-
-  if (Serial.available())
-  {
+  if (Serial.available()){
     SerialBT.write(Serial.read());
   }
-
-  if (millis() > tiempo_actual + TICK_ULTRASONIDO)
-  {
+  
+  if (millis() > tiempo_actual + TICK_ULTRASONIDO) {
     tiempo_actual = millis();
-    sensor_izquierdo = 10 * LeerUltrasonidos(TRIG1, ECHO1);
-    sensor_frontal = 10 * LeerUltrasonidos(TRIG2, ECHO2);
-    sensor_derecho = 10 * LeerUltrasonidos(TRIG4, ECHO4);
+    sensor_izquierdo = LeerUltrasonidos(TRIG4, ECHO4);
+    sensor_frontal = LeerUltrasonidos(TRIG2, ECHO2);
+    sensor_derecho = LeerUltrasonidos(TRIG1, ECHO1);
   }
-//pid
+//pid 
+
+double Input= sensor_derecho - sensor_izquierdo ;
     
-    double Input= sensor_derecho - sensor_izquierdo;
-    
-  if (millis() > tiempo_actual_pid + TICK_PID)
-  {
+  if (millis() > tiempo_actual_pid + TICK_PID){
     tiempo_actual_pid = millis();
     PID1 = computePID(Input);
   }
-  if (PID1 > 1 )
-  {
-    vel2 = velocidad - PID1;
-    vel1 = velocidad + PID1;
-    if (vel2 < 150) velocidad2 = 150;
-    if (vel2 > 150) velocidad2 = vel2;
-
-    if (vel1 > 255) velocidad1 = 255; 
-    if (vel1 < 255) velocidad1 = vel1; 
-  }
-  if (PID1 < -1)
-  {
-    vel1b = velocidad + PID1;
-    vel2b = velocidad - PID1;
-    if (vel1b < 150) velocidad1 = 150;
-    if (vel1b > 150) velocidad1 = vel1b;
-
-    if (vel2b > 255) velocidad2 = 255; 
-    if (vel2b < 255) velocidad2 = vel2b; 
-  }
   
+  if (PID1 > 30) PID1 =  30;
+  if (PID1 < -30) PID1 = -30; 
+  
+
+  if (PID1){
+    velocidad_derecha = velocidad_media + PID1;
+    velocidad_izquierda = velocidad_media - PID1;
+  }
+
   MovimientosDelRobot();
 
-  if (SerialBT.available())
-  { 
-      if (millis() > tiempo_notificacion + TICK_NOTIFICACION)
-  { 
+  if (SerialBT.available()){ 
+      if (millis() > tiempo_notificacion + TICK_NOTIFICACION){ 
     tiempo_notificacion = millis();   
-    if(DEBUG_PID){
-      ImprimirPID();
-    }  
-    if (DEBUG_DE_CASOS)
-    {
+
+    if (DEBUG_DE_CASOS){
       ImprimirEstadoRobot(ubicacion);
     }
-    if (DEBUG_DE_SENSORES)
-    {
+
+    if (DEBUG_DE_SENSORES){
       ImprimirDatos(sensor_derecho, sensor_frontal, sensor_izquierdo);
     }
-    SerialBT.print("-");
+
+    if(DEBUG_PID){
+      ImprimirPID();
+    }
   }
 }
 }
