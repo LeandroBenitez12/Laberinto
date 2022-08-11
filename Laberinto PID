@@ -1,3 +1,4 @@
+
 #include "BluetoothSerial.h"
 // DEBUG
 #define DEBUG_DE_CASOS 0
@@ -26,9 +27,9 @@
 #define TICK_PID 50
 #define TICK_ULTRASONIDO 10
 #define TICK_NOTIFICACION 1000
-int velocidad_derecha = 165;
-int velocidad_izquierda = 165;
-int velocidad_media = 165;
+int velocidad_derecha = 175;
+int velocidad_izquierda = 175;
+int velocidad_media = 175;
 #define BUZZER 23
 #define BUTTON 13
 // pwm DE UN MOTOR
@@ -63,7 +64,7 @@ int pin_sensores_ultrasonido[4][2] = {
 
   //PID 
   //PID constants
-double kp = 0.149;
+double kp = 0.0998;
 double kd = 0;
 
 unsigned long currentTime, previousTime;
@@ -289,7 +290,8 @@ void MovimientosDelRobot()
     }
     if (button_start)
     {
-      {ubicacion = PASILLO;}
+      delay(5000);
+      ubicacion = PASILLO;
     }
     else
       {
@@ -301,6 +303,7 @@ void MovimientosDelRobot()
 
   case PASILLO:
   {
+    Forward();
     if (sensor_frontal > DISTANCIA_MINIMA && sensor_izquierdo <= DISTANCIA_LADOS && sensor_derecho <= DISTANCIA_LADOS)
     {
       Forward();
@@ -517,12 +520,14 @@ double Input= sensor_derecho - sensor_izquierdo ;
   if (PID1 > 30) PID1 =  30;
   if (PID1 < -30) PID1 = -30; 
   
-
+//asi el pid fira bien en los sentidos tipo si esta cerca de la pared derecha va hacia la izquierda
   if (PID1){
-    velocidad_derecha = velocidad_media + PID1;
-    velocidad_izquierda = velocidad_media - PID1;
+    velocidad_derecha = (velocidad_media - (PID1));
+    velocidad_izquierda = (velocidad_media + (PID1));
   }
-
+  if (velocidad_izquierda < 155) velocidad_izquierda = 155;
+  if (velocidad_derecha < 155) velocidad_derecha = 155;
+  ubicacion = PASILLO;
   MovimientosDelRobot();
 
   if (SerialBT.available()){ 
